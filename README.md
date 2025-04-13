@@ -128,7 +128,7 @@ BAIDU_SECRET_KEY=your_baidu_secret
 
 ## 📤 Docker Hub 镜像
 
-> 镜像地址：[https://hub.docker.com/r/yourusername/composition-ai](https://hub.docker.com/r/yourusername/composition-ai)
+> 镜像地址：[https://hub.docker.com/r/yourusername/composition-ai](https://hub.docker.com/r/jakechow/composition-ai)
 
 ---
 
