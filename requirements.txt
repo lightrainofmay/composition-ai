@@ -1,0 +1,10 @@
+flask
+requests
+torch==2.6.0
+torchvision
+torchaudio
+pillow
+transformers
+google-genai
+python-dotenv
+openai

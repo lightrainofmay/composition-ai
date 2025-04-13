@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+  <meta charset="UTF-8">
+  <title>作文识别与智能评改</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f2f5;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    h2 {
+      color: #333;
+    }
+
+    .result-box {
+      margin-top: 20px;
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 5px;
+      white-space: pre-wrap;
+    }
+
+    button {
+      font-size: 12px;
+      padding: 5px 10px;
+      margin-right: 10px;
+    }
+
+    label {
+      font-weight: bold;
+      display: block;
+      margin-top: 15px;
+    }
+
+    textarea,
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      margin-top: 5px;
+      font-size: 16px;
+      padding: 10px;
+    }
+
+    input[type="number"] {
+      width: 100px;
+    }
+
+    .progress-bar {
+      height: 24px;
+      background-color: #e9ecef;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 20px;
+    }
+
+    .progress-bar-fill {
+      height: 120%;
+      width: 0%;
+      background-color: #007bff;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: width 0.4s ease;
+    }
+
+    .button-group {
+      display: flex;
+      justify-content: flex-start;
+      gap: 15px;
+      margin-top: 10px;
+    }
+
+    .result-box div {
+      line-height: 1.6;
+    }
+  </style>
+
+  <!-- ✅ 引入 marked.js 用于 Markdown 渲染 -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+
+<body>
+  <div class="container">
+    <h2>中小学作文识别与评改系统V1.0</h2>
+
+    <label>上传手写作文图片：</label>
+    <input type="file" id="file" name="file" accept="image/*" required>
+    <br><br>
+    <button type="button" id="upload-btn">提交</button>
+
+    <div class="progress-bar" id="progress-container" style="display:none;">
+      <div class="progress-bar-fill" id="progress-fill">0%</div>
+    </div>
+
+    <div id="analysis-section" style="display:none;">
+      <div class="result-box">
+        <label>OCR 识别结果：</label>
+        <textarea id="ocr_text" rows="20" readonly></textarea>
+        <label>OCR 准确性评分（1-10）：</label>
+        <input type="number" id="score_ocr" min="1" max="10">
+      </div>
+
+      <div class="result-box">
+        <label>🤖 GPT-4o 智能评语：</label>
+        <div id="gpt"></div>
+        <label>GPT-4o 评分（1-10）：</label>
+        <input type="number" id="score_gpt" min="1" max="10">
+      </div>
+
+      <div class="result-box">
+        <label>🌈 Gemini Flash 智能评语：</label>
+        <div id="gemini"></div>
+        <label>Gemini Flash 评分（1-10）：</label>
+        <input type="number" id="score_gemini" min="1" max="10">
+      </div>
+
+      <div class="result-box">
+        <label>🧠 DeepSeek Reasoner V3 智能评语：</label>
+        <div id="deepseek"></div>
+        <label>DeepSeek Reasoner 评分（1-10）：</label>
+        <input type="number" id="score_deepseek" min="1" max="10">
+      </div>
+
+      <div class="result-box">
+        <label>您的总体评价或建议：</label>
+        <textarea id="user_comment" rows="10"></textarea>
+        <div class="button-group">
+          <button id="submit-feedback">提交反馈</button>
+          <button id="download-csv">下载反馈数据</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const uploadBtn = document.getElementById("upload-btn");
+    const progress = document.getElementById("progress-container");
+    const progressFill = document.getElementById("progress-fill");
+    const ocrTextArea = document.getElementById("ocr_text");
+    const gptBox = document.getElementById("gpt");
+    const geminiBox = document.getElementById("gemini");
+    const deepseekBox = document.getElementById("deepseek");
+    const analysisSection = document.getElementById("analysis-section");
+    const feedbackBtn = document.getElementById("submit-feedback");
+    const downloadBtn = document.getElementById("download-csv");
+
+    let latestResult = {};
+    let startTime = new Date();
+
+    function updateProgress(percent, label) {
+      progress.style.display = "block";
+      progressFill.style.width = percent + "%";
+      progressFill.textContent = label;
+    }
+
+    uploadBtn.addEventListener("click", async () => {
+      const fileInput = document.getElementById("file");
+      if (!fileInput.files[0]) return alert("请先选择一个图片文件");
+
+      updateProgress(10, "OCR中...");
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+
+      const uploadRes = await fetch("/upload", {
+        method: "POST",
+        body: formData
+      });
+      const uploadData = await uploadRes.json();
+      if (uploadData.error) return alert("上传失败: " + uploadData.error);
+
+      ocrTextArea.value = uploadData.ocr_text;
+      latestResult.ocr_text = uploadData.ocr_text;
+      latestResult.ocr_score = uploadData.ocr_score;
+
+      updateProgress(30, "使用 GPT-4o 分析中...");
+      const gptRes = await fetch("/analyze_gpt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: uploadData.ocr_text })
+      });
+      const gptData = await gptRes.json();
+      gptBox.innerHTML = marked.parse(gptData.result || "无返回");
+      latestResult.gpt_4o_feedback = gptData.result;
+
+      updateProgress(60, "使用 Gemini Flash 分析中...");
+      const geminiRes = await fetch("/analyze_gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: uploadData.ocr_text })
+      });
+      const geminiData = await geminiRes.json();
+      geminiBox.innerHTML = marked.parse(geminiData.result || "无返回");
+      latestResult.gemini_flash_feedback = geminiData.result;
+
+      updateProgress(80, "使用 DeepSeek V3 分析中...");
+      const deepRes = await fetch("/analyze_deepseek", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: uploadData.ocr_text })
+      });
+      const deepData = await deepRes.json();
+      deepseekBox.innerHTML = marked.parse(deepData.result || "无返回");
+      latestResult.deepseek_reasoner_feedback = deepData.result;
+
+      updateProgress(100, "全部完成✅");
+      setTimeout(() => {
+        progress.style.display = "none";
+      }, 500);
+
+      analysisSection.style.display = "block";
+    });
+
+    feedbackBtn.addEventListener("click", async () => {
+      const feedbackData = {
+        ...latestResult,
+        score_ocr: document.getElementById("score_ocr").value || "",
+        score_gpt: document.getElementById("score_gpt").value || "",
+        score_gemini: document.getElementById("score_gemini").value || "",
+        score_deepseek: document.getElementById("score_deepseek").value || "",
+        user_comment: document.getElementById("user_comment").value,
+        used_time: Math.round((new Date() - startTime) / 1000)
+      };
+
+      const res = await fetch("/submit_feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(feedbackData)
+      });
+
+      const result = await res.json();
+      if (result.message) alert("✅ 反馈已保存，谢谢您的参与！");
+      else alert("❌ 提交失败: " + result.error);
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      window.location.href = "/download_feedback";
+    });
+  </script>
+</body>
+
+</html>

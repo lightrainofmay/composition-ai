@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+*.log
+*.csv
+*.db
+uploads/
+.vscode/
+.DS_Store
+*.exe
+wheels/

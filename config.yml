@@ -1,0 +1,7 @@
+tunnel: composition-ai-tunnel
+credentials-file: /root/.cloudflared/COMPOSITION_AI_TUNNEL_ID.json
+
+ingress:
+  - hostname: ai.yourdomain.com
+    service: http://localhost:5000
+  - service: http_status:404
