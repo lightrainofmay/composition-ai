@@ -1,12 +1,26 @@
-__pycache__/
-*.pyc
+# 忽略 Python 虚拟环境
+venv/
 .env
-.env.*
+
+# 忽略 Python 编译缓存
+__pycache__/
+*.py[cod]
+*.so
+
+# 忽略临时文件
 *.log
 *.csv
+*.sqlite3
 *.db
-uploads/
-.vscode/
-.DS_Store
+
+# 忽略上传的模型和大文件
+*.dll
+*.lib
 *.exe
-wheels/
+*.whl
+
+# 忽略 Docker 构建缓存等
+*.tar
+*.bak
+*.zip
+*.gz
