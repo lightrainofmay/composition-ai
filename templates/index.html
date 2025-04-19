@@ -35,6 +35,7 @@
     button {
       font-size: 12px;
       padding: 5px 10px;
+      margin-top: 10px;
       margin-right: 10px;
     }
 
@@ -45,7 +46,6 @@
     }
 
     textarea,
-    input[type="text"],
     input[type="number"] {
       width: 100%;
       margin-top: 5px;
@@ -86,20 +86,30 @@
     .result-box div {
       line-height: 1.6;
     }
-  </style>
 
-  <!-- ✅ 引入 marked.js 用于 Markdown 渲染 -->
+    .note {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 10px;
+    }
+  </style>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 
 <body>
   <div class="container">
-    <h2>中小学作文识别与评改系统V1.0</h2>
+    <h2>中小学作文识别与评改系统 V1.0</h2>
 
     <label>上传手写作文图片：</label>
-    <input type="file" id="file" name="file" accept="image/*" required>
-    <br><br>
-    <button type="button" id="upload-btn">提交</button>
+    <div class="note">📌说明：支持上传一位学生的多页作文（点击“提交单篇/多页”），或多位学生的单页/多页作文（点击“批量提交”）。<br>
+      🧠 <b>批量上传请将同一学生的图片命名为相同前缀</b>（如 <code>张三_1.jpg</code>、<code>张三_2.jpg</code>），系统将自动分组评改。</div>
+
+    <input type="file" id="unified-file" accept="image/*" multiple>
+
+    <div class="button-group">
+      <button type="button" id="upload-single">提交单篇/多页</button>
+      <button type="button" id="upload-batch">批量提交</button>
+    </div>
 
     <div class="progress-bar" id="progress-container" style="display:none;">
       <div class="progress-bar-fill" id="progress-fill">0%</div>
@@ -143,110 +153,136 @@
         </div>
       </div>
     </div>
+
+    <div id="batch-result"></div>
   </div>
 
   <script>
-    const uploadBtn = document.getElementById("upload-btn");
-    const progress = document.getElementById("progress-container");
-    const progressFill = document.getElementById("progress-fill");
-    const ocrTextArea = document.getElementById("ocr_text");
-    const gptBox = document.getElementById("gpt");
-    const geminiBox = document.getElementById("gemini");
-    const deepseekBox = document.getElementById("deepseek");
-    const analysisSection = document.getElementById("analysis-section");
-    const feedbackBtn = document.getElementById("submit-feedback");
-    const downloadBtn = document.getElementById("download-csv");
+    document.addEventListener("DOMContentLoaded", () => {
+      const uploadSingleBtn = document.getElementById("upload-single");
+      const batchBtn = document.getElementById("upload-batch");
+      const progress = document.getElementById("progress-container");
+      const progressFill = document.getElementById("progress-fill");
+      const fileInput = document.getElementById("unified-file");
+      const ocrTextArea = document.getElementById("ocr_text");
+      const gptBox = document.getElementById("gpt");
+      const geminiBox = document.getElementById("gemini");
+      const deepseekBox = document.getElementById("deepseek");
+      const analysisSection = document.getElementById("analysis-section");
+      const feedbackBtn = document.getElementById("submit-feedback");
+      const downloadBtn = document.getElementById("download-csv");
+      const batchResultDiv = document.getElementById("batch-result");
 
-    let latestResult = {};
-    let startTime = new Date();
+      let latestResult = {};
+      let startTime = new Date();
 
-    function updateProgress(percent, label) {
-      progress.style.display = "block";
-      progressFill.style.width = percent + "%";
-      progressFill.textContent = label;
-    }
+      function updateProgress(percent, label) {
+        progress.style.display = "block";
+        progressFill.style.width = percent + "%";
+        progressFill.textContent = label;
+      }
 
-    uploadBtn.addEventListener("click", async () => {
-      const fileInput = document.getElementById("file");
-      if (!fileInput.files[0]) return alert("请先选择一个图片文件");
+      uploadSingleBtn.addEventListener("click", async () => {
+        if (!fileInput.files.length) return alert("请先选择至少一张图片");
+        startTime = new Date();
+        updateProgress(10, "OCR中...");
+        const formData = new FormData();
+        for (const file of fileInput.files) formData.append("file", file);
 
-      updateProgress(10, "OCR中...");
-      const formData = new FormData();
-      formData.append("file", fileInput.files[0]);
+        const uploadRes = await fetch("/upload", { method: "POST", body: formData });
+        const uploadData = await uploadRes.json();
+        if (uploadData.error) return alert("上传失败: " + uploadData.error);
 
-      const uploadRes = await fetch("/upload", {
-        method: "POST",
-        body: formData
-      });
-      const uploadData = await uploadRes.json();
-      if (uploadData.error) return alert("上传失败: " + uploadData.error);
+        ocrTextArea.value = uploadData.ocr_text;
+        latestResult.ocr_text = uploadData.ocr_text;
+        latestResult.ocr_score = uploadData.ocr_score;
 
-      ocrTextArea.value = uploadData.ocr_text;
-      latestResult.ocr_text = uploadData.ocr_text;
-      latestResult.ocr_score = uploadData.ocr_score;
+        updateProgress(30, "使用 GPT-4o 分析中...");
+        const gptRes = await fetch("/analyze_gpt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: uploadData.ocr_text })
+        });
+        const gptData = await gptRes.json();
+        gptBox.innerHTML = marked.parse(gptData.result || "无返回");
+        latestResult.gpt_4o_feedback = gptData.result;
+        latestResult.gpt_duration = gptData.duration || "";
 
-      updateProgress(30, "使用 GPT-4o 分析中...");
-      const gptRes = await fetch("/analyze_gpt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: uploadData.ocr_text })
-      });
-      const gptData = await gptRes.json();
-      gptBox.innerHTML = marked.parse(gptData.result || "无返回");
-      latestResult.gpt_4o_feedback = gptData.result;
+        updateProgress(60, "使用 Gemini Flash 分析中...");
+        const geminiRes = await fetch("/analyze_gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: uploadData.ocr_text })
+        });
+        const geminiData = await geminiRes.json();
+        geminiBox.innerHTML = marked.parse(geminiData.result || "无返回");
+        latestResult.gemini_flash_feedback = geminiData.result;
+        latestResult.gemini_duration = geminiData.duration || "";
 
-      updateProgress(60, "使用 Gemini Flash 分析中...");
-      const geminiRes = await fetch("/analyze_gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: uploadData.ocr_text })
-      });
-      const geminiData = await geminiRes.json();
-      geminiBox.innerHTML = marked.parse(geminiData.result || "无返回");
-      latestResult.gemini_flash_feedback = geminiData.result;
+        updateProgress(80, "使用 DeepSeek 分析中...");
+        const deepRes = await fetch("/analyze_deepseek", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: uploadData.ocr_text })
+        });
+        const deepData = await deepRes.json();
+        deepseekBox.innerHTML = marked.parse(deepData.result || "无返回");
+        latestResult.deepseek_reasoner_feedback = deepData.result;
+        latestResult.deepseek_duration = deepData.duration || "";
 
-      updateProgress(80, "使用 DeepSeek V3 分析中...");
-      const deepRes = await fetch("/analyze_deepseek", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: uploadData.ocr_text })
-      });
-      const deepData = await deepRes.json();
-      deepseekBox.innerHTML = marked.parse(deepData.result || "无返回");
-      latestResult.deepseek_reasoner_feedback = deepData.result;
-
-      updateProgress(100, "全部完成✅");
-      setTimeout(() => {
-        progress.style.display = "none";
-      }, 500);
-
-      analysisSection.style.display = "block";
-    });
-
-    feedbackBtn.addEventListener("click", async () => {
-      const feedbackData = {
-        ...latestResult,
-        score_ocr: document.getElementById("score_ocr").value || "",
-        score_gpt: document.getElementById("score_gpt").value || "",
-        score_gemini: document.getElementById("score_gemini").value || "",
-        score_deepseek: document.getElementById("score_deepseek").value || "",
-        user_comment: document.getElementById("user_comment").value,
-        used_time: Math.round((new Date() - startTime) / 1000)
-      };
-
-      const res = await fetch("/submit_feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(feedbackData)
+        updateProgress(100, "全部完成✅");
+        setTimeout(() => progress.style.display = "none", 800);
+        analysisSection.style.display = "block";
       });
 
-      const result = await res.json();
-      if (result.message) alert("✅ 反馈已保存，谢谢您的参与！");
-      else alert("❌ 提交失败: " + result.error);
-    });
+      batchBtn.addEventListener("click", async () => {
+        if (!fileInput.files.length) return alert("请选择图片文件");
+        const formData = new FormData();
+        for (const file of fileInput.files) formData.append("files", file);
 
-    downloadBtn.addEventListener("click", () => {
-      window.location.href = "/download_feedback";
+        updateProgress(10, `正在上传图片...`);
+        const res = await fetch("/upload_batch_users", {
+          method: "POST",
+          body: formData,
+        });
+
+        updateProgress(60, "正在分析，请耐心等待...");
+        const data = await res.json();
+
+        updateProgress(100, "分析完成 ✅");
+        setTimeout(() => progress.style.display = "none", 1000);
+
+        let html = '<div class="result-box"><h3>批量批改结果：</h3>';
+        data.results.forEach((item, idx) => {
+          html += `<p><strong>第 ${idx + 1} 位 - ${item.student}</strong><br>${marked.parse(item.result)}</p><hr>`;
+        });
+        html += '</div>';
+        batchResultDiv.innerHTML = html;
+      });
+
+      feedbackBtn.addEventListener("click", async () => {
+        const feedbackData = {
+          ...latestResult,
+          score_ocr: document.getElementById("score_ocr").value || "",
+          score_gpt: document.getElementById("score_gpt").value || "",
+          score_gemini: document.getElementById("score_gemini").value || "",
+          score_deepseek: document.getElementById("score_deepseek").value || "",
+          user_comment: document.getElementById("user_comment").value,
+          used_time: Math.round((new Date() - startTime) / 1000)
+        };
+        const res = await fetch("/submit_feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(feedbackData)
+        });
+        const result = await res.json();
+        if (result.message) alert("✅ 反馈已保存，谢谢！");
+        else alert("❌ 提交失败: " + result.error);
+      });
+
+      downloadBtn.addEventListener("click", () => {
+        window.location.href = "/download_feedback";
+      });
     });
   </script>
 </body>
